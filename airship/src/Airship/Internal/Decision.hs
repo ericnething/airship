@@ -1,67 +1,57 @@
-{-# LANGUAGE CPP                #-}
-{-# LANGUAGE ImpredicativeTypes #-}
 {-# LANGUAGE OverloadedStrings  #-}
-{-# LANGUAGE RankNTypes         #-}
 {-# LANGUAGE RecordWildCards    #-}
 
 module Airship.Internal.Decision
     ( flow
     , appendRequestPath
-    ) where
+    )
+where
 
-import           Airship.Headers                  (addResponseHeader)
-import           Airship.Internal.Date            (parseRfc1123Date,
-                                                   utcTimeToRfc1123)
-import           Airship.Internal.Parsers         (parseEtagList)
-import           Airship.Resource                 (PostResponse (..),
-                                                   Resource (..))
-import           Airship.Types                    (Response (..),
-                                                   ResponseBody (..),
-                                                   Webmachine, addTrace,
-                                                   etagToByteString,
-                                                   getResponseBody,
-                                                   getResponseHeaders, halt,
-                                                   pathInfo, putResponseBody,
-                                                   request, requestHeaders,
-                                                   requestMethod, requestTime)
-#if __GLASGOW_HASKELL__ < 710
-import           Control.Applicative              ((<$>))
-#endif
-import           Control.Monad                    (when)
-import           Control.Monad.Trans              (lift)
-import           Control.Monad.Trans.State.Strict (StateT (..), evalStateT, get,
-                                                   modify)
-
-
-import           Blaze.ByteString.Builder         (toByteString)
-import           Data.ByteString                  (ByteString, intercalate)
-import           Data.Maybe                       (isJust)
-import           Data.Text                        (Text)
-import           Data.Time.Clock                  (UTCTime)
-
-import           Network.HTTP.Media
-import qualified Network.HTTP.Types               as HTTP
-
-------------------------------------------------------------------------------
--- HTTP Headers
--- These are headers not defined for us already in
--- Network.HTTP.Types
-------------------------------------------------------------------------------
--- TODO this exist in http-types-0.9, see CHANGES.txt
-hAcceptCharset :: HTTP.HeaderName
-hAcceptCharset = "Accept-Charset"
-
-hAcceptEncoding :: HTTP.HeaderName
-hAcceptEncoding = "Accept-Encoding"
-
-hIfMatch :: HTTP.HeaderName
-hIfMatch = "If-Match"
-
-hIfUnmodifiedSince :: HTTP.HeaderName
-hIfUnmodifiedSince = "If-Unmodified-Since"
-
-hIfNoneMatch :: HTTP.HeaderName
-hIfNoneMatch = "If-None-Match"
+import Airship.Headers (addResponseHeader)
+import Airship.Internal.Date
+  ( parseRfc1123Date
+  , utcTimeToRfc1123
+  )
+import Airship.Internal.Parsers (parseEtagList)
+import Airship.Resource
+  ( PostResponse(..)
+  , Resource(..)
+  )
+import Airship.Types
+  ( Response(..)
+  , ResponseBody(..)
+  , Webmachine
+  , addTrace
+  , etagToByteString
+  , getResponseBody
+  , getResponseHeaders
+  , halt
+  , pathInfo
+  , putResponseBody
+  , request
+  , requestHeaders
+  , requestMethod
+  , requestTime
+  )
+import Blaze.ByteString.Builder (toByteString)
+import Control.Monad (when)
+import Control.Monad.Trans (lift)
+import Control.Monad.Trans.State.Strict
+  ( StateT(..)
+  , evalStateT
+  , get
+  , modify
+  )
+import Data.ByteString
+  ( ByteString
+  , intercalate
+  )
+import Data.Maybe (isJust)
+import Data.Text (Text)
+import Data.Time.Clock (UTCTime)
+import Network.HTTP.Media
+import qualified Network.HTTP.Types as HTTP
+import qualified Network.HTTP.Types.Header as HTTP
 
 ------------------------------------------------------------------------------
 -- FlowState: StateT used for recording information as we walk the decision
@@ -322,7 +312,7 @@ e05 r@Resource{..} = do
     trace "e05"
     req <- lift request
     let reqHeaders = requestHeaders req
-    case lookup hAcceptCharset reqHeaders of
+    case lookup HTTP.hAcceptCharset reqHeaders of
         (Just _h) ->
             e06 r
         Nothing ->
@@ -341,7 +331,7 @@ f06 r@Resource{..} = do
     trace "f06"
     req <- lift request
     let reqHeaders = requestHeaders req
-    case lookup hAcceptEncoding reqHeaders of
+    case lookup HTTP.hAcceptEncoding reqHeaders of
         (Just _h) ->
             f07 r
         Nothing ->
@@ -371,7 +361,7 @@ g08 r@Resource{..} = do
     trace "g08"
     req <- lift request
     let reqHeaders = requestHeaders req
-    case IfMatch <$> lookup hIfMatch reqHeaders of
+    case IfMatch <$> lookup HTTP.hIfMatch reqHeaders of
         (Just h) ->
             g09 h r
         Nothing ->
@@ -392,7 +382,7 @@ g07 r@Resource{..} = do
 h12 r@Resource{..} = do
     trace "h12"
     modified <- lift lastModified
-    parsedDate <- lift $ requestHeaderDate hIfUnmodifiedSince
+    parsedDate <- lift $ requestHeaderDate HTTP.hIfUnmodifiedSince
     let maybeGreater = do
             lastM <- modified
             headerDate <- parsedDate
@@ -403,7 +393,7 @@ h12 r@Resource{..} = do
 
 h11 r@Resource{..} = do
     trace "h11"
-    parsedDate <- lift $ requestHeaderDate hIfUnmodifiedSince
+    parsedDate <- lift $ requestHeaderDate HTTP.hIfUnmodifiedSince
     if isJust parsedDate
         then h12 r
         else i12 r
@@ -412,7 +402,7 @@ h10 r@Resource{..} = do
     trace "h10"
     req <- lift request
     let reqHeaders = requestHeaders req
-    case lookup hIfUnmodifiedSince reqHeaders of
+    case lookup HTTP.hIfUnmodifiedSince reqHeaders of
         (Just _h) ->
             h11 r
         Nothing ->
@@ -422,7 +412,7 @@ h07 r@Resource {..} = do
     trace "h07"
     req <- lift request
     let reqHeaders = requestHeaders req
-    case lookup hIfMatch reqHeaders of
+    case lookup HTTP.hIfMatch reqHeaders of
         -- TODO: should we be stripping whitespace here?
         (Just "*") ->
             lift $ halt HTTP.status412
@@ -446,7 +436,7 @@ i12 r@Resource{..} = do
     trace "i12"
     req <- lift request
     let reqHeaders = requestHeaders req
-    case IfNoneMatch <$> lookup hIfNoneMatch reqHeaders of
+    case IfNoneMatch <$> lookup HTTP.hIfNoneMatch reqHeaders of
         (Just h) ->
             i13 h r
         Nothing ->

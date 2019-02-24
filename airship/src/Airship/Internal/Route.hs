@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP                        #-}
 {-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses      #-}
@@ -20,36 +19,45 @@ module Airship.Internal.Route
     , runRouter
     , route
     , routeText
-    ) where
+    )
+where
 
-import           Airship.Resource           as Resource
+import Airship.Resource as Resource
+import Control.Monad.Writer
+  ( Writer
+  , WriterT(..)
+  , execWriter
+  )
+import Control.Monad.Writer.Class (MonadWriter, tell)
+import qualified Data.ByteString as B
+import qualified Data.ByteString.Base64 as Base64
+import qualified Data.ByteString.Char8 as BC8
+import Data.HashMap.Strict
+  ( HashMap
+  , fromList
+  )
+import qualified Data.List as L (foldl')
+import Data.Maybe (isNothing)
+import Data.Text (Text)
+import qualified Data.Text as T
+  ( intercalate
+  , cons
+  )
+import Data.Text.Encoding
+  ( encodeUtf8
+  , decodeUtf8
+  )
+import Data.Trie (Trie)
+import qualified Data.Trie as Trie
+import Data.String
+  ( IsString
+  , fromString
+  )
 
-import           Control.Monad.Writer.Class (MonadWriter, tell)
-import qualified Data.ByteString            as B
-import qualified Data.ByteString.Base64     as Base64
-import qualified Data.ByteString.Char8      as BC8
-import           Data.HashMap.Strict        (HashMap, fromList)
-import qualified Data.List                  as L (foldl')
-import           Data.Maybe                 (isNothing)
-import           Data.Semigroup
-import           Data.Monoid
-import           Data.Text                  (Text)
-import qualified Data.Text                  as T (intercalate, cons)
-import           Data.Text.Encoding         (encodeUtf8, decodeUtf8)
-import           Data.Trie                  (Trie)
-import qualified Data.Trie                  as Trie
-
-
-#if __GLASGOW_HASKELL__ < 710
-import           Control.Applicative
-#endif
-import           Control.Monad.Writer       (Writer, WriterT (..), execWriter)
-
-import           Data.String                (IsString, fromString)
-
--- | 'Route's represent chunks of text used to match over URLs.
--- You match hardcoded paths with string literals (and the @-XOverloadedStrings@ extension),
--- named variables with the 'var' combinator, and wildcards with 'star'.
+-- | 'Route's represent chunks of text used to match over URLs.  You
+-- match hardcoded paths with string literals (and the
+-- @-XOverloadedStrings@ extension), named variables with the 'var'
+-- combinator, and wildcards with 'star'.
 newtype Route = Route { getRoute :: [BoundOrUnbound] }
   deriving (Show, Semigroup, Monoid)
 
@@ -57,35 +65,31 @@ routeText :: Route -> Text
 routeText (Route parts) =
     T.cons '/' $ T.intercalate "/" ((boundOrUnboundText <$> parts))
 
-data BoundOrUnbound = Bound Text
-                    | Var Text
-                    | RestUnbound deriving (Show)
-
+data BoundOrUnbound
+  = Bound Text
+  | Var Text
+  | RestUnbound
+  deriving (Show)
 
 boundOrUnboundText :: BoundOrUnbound -> Text
 boundOrUnboundText (Bound t) = t
 boundOrUnboundText (Var t) = ":" <> t
 boundOrUnboundText (RestUnbound) = "*"
 
-
-
-
 instance IsString Route where
-    fromString s = Route [Bound (fromString s)]
-
+  fromString s = Route [Bound (fromString s)]
 
 data RoutedResource m
-    = RoutedResource Route (Resource m)
+  = RoutedResource Route (Resource m)
 
+data RouteLeaf m
+  = RouteMatch (RoutedResource m) [Text]
+  | RVar
+  | RouteMatchOrVar (RoutedResource m) [Text]
+  | Wildcard (RoutedResource m)
 
-data RouteLeaf m = RouteMatch (RoutedResource m) [Text]
-                 | RVar
-                 | RouteMatchOrVar (RoutedResource m) [Text]
-                 | Wildcard (RoutedResource m)
-
-
--- | Turns the list of routes in a 'RoutingSpec' into a 'Trie' for efficient
--- routing
+-- | Turns the list of routes in a 'RoutingSpec' into a 'Trie' for
+-- efficient routing
 runRouter :: RoutingSpec m a -> Trie (RouteLeaf m)
 runRouter routes = toTrie $ execWriter (getRouter routes)
     where
@@ -173,7 +177,9 @@ k #> v = do
 k #>= mv = mv >>= (k #>)
 
 
--- | Represents a fully-specified set of routes that map paths (represented as 'Route's) to 'Resource's. 'RoutingSpec's are declared with do-notation, to wit:
+-- | Represents a fully-specified set of routes that map paths
+-- (represented as 'Route's) to 'Resource's. 'RoutingSpec's are
+-- declared with do-notation, to wit:
 --
 -- @
 --    myRoutes :: RoutingSpec IO ()
@@ -184,18 +190,22 @@ k #>= mv = mv >>= (k #>)
 --      "anything" '</>' star                  #> wildcardResource
 -- @
 --
-newtype RoutingSpec m a = RoutingSpec {
-        getRouter :: Writer [(B.ByteString, RouteLeaf m)] a
-    } deriving ( Functor, Applicative, Monad
-               , MonadWriter [(B.ByteString, RouteLeaf m)]
-               )
-
+newtype RoutingSpec m a = RoutingSpec
+  { getRouter :: Writer [(B.ByteString, RouteLeaf m)] a
+  } deriving ( Functor
+             , Applicative
+             , Monad
+             , MonadWriter [(B.ByteString, RouteLeaf m)]
+             )
 
 route :: Trie (RouteLeaf a)
       -> BC8.ByteString
       -> Maybe (RoutedResource a, (HashMap Text Text, [Text]))
-route routes pInfo = let matchRes = Trie.match routes pInfo
-                     in matchRoute' routes matchRes mempty Nothing
+route routes pInfo =
+  let
+    matchRes = Trie.match routes pInfo
+  in
+    matchRoute' routes matchRes mempty Nothing
 
 
 matchRoute' :: Trie (RouteLeaf a)

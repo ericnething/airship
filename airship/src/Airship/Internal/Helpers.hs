@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP               #-}
 {-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes        #-}
@@ -17,16 +16,10 @@ module Airship.Internal.Helpers
     , lookupParam'
     ) where
 
-#if __GLASGOW_HASKELL__ < 710
-import           Control.Applicative
-#endif
 import           Control.Monad             (join)
 import           Data.ByteString           (ByteString, intercalate)
 import qualified Data.ByteString.Lazy      as LB
 import           Data.Maybe
-#if __GLASGOW_HASKELL__ < 710
-import           Data.Monoid
-#endif
 import           Data.Foldable             (forM_)
 import qualified Data.HashMap.Strict       as HM
 import qualified Data.Map.Strict           as M
